@@ -1,0 +1,10 @@
+{
+  "id": "image-autocrop",
+  "name": "Image Autocrop",
+  "version": "1.0.0",
+  "minAppVersion": "1.5.0",
+  "description": "Automatically crop, square, and resize PNG images in specified folders. Perfect for processing DALL-E enluminures.",
+  "author": "Claude",
+  "authorUrl": "https://github.com",
+  "isDesktopOnly": true
+}
