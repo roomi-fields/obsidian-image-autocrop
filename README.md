@@ -1,60 +1,66 @@
 # Image Autocrop for Obsidian
 
-Automatically crop, square, and resize PNG images in specified folders. Perfect for processing DALL-E generated enluminures.
+An Obsidian plugin that automatically crops, squares, and resizes PNG images. Perfect for processing AI-generated illustrations (like DALL-E enluminures) into consistent, web-ready thumbnails.
 
 ## Features
 
-- **Auto-watch folder**: Monitors a specified folder for new PNG images
-- **Smart cropping**: Removes transparent/empty edges
-- **Square output**: Centers content in a square canvas
-- **Resize**: Scales to your target size (default: 200x200)
-- **Manual processing**: Commands to process current image or all images in folder
+- **Auto-crop**: Trims transparent/empty edges from images
+- **Auto-square**: Centers content in a square canvas
+- **Auto-resize**: Scales to your target size (default 200x200px)
+- **Folder watching**: Automatically processes new images added to a watched folder
+- **Backup system**: Saves originals in `_originals/` subfolder for easy restoration
+- **Context menu**: Right-click any PNG to manually crop or restore
 
 ## Installation
 
-### Prerequisites
-
-This plugin requires **Sharp**, a native image processing library. You need to install it in your vault's plugin folder:
-
-```bash
-cd /path/to/your/vault/.obsidian/plugins/image-autocrop
-npm install sharp
-```
-
 ### Manual Installation
 
-1. Create a folder `image-autocrop` in your vault's `.obsidian/plugins/` directory
-2. Copy `main.js`, `manifest.json`, and `styles.css` to this folder
-3. Install Sharp: `npm install sharp` in the plugin folder
-4. Enable the plugin in Obsidian Settings → Community plugins
+1. Download the latest release
+2. Extract to your vault's `.obsidian/plugins/image-autocrop/` folder
+3. Run `npm install` in the plugin folder (required for Sharp image library)
+4. Enable the plugin in Obsidian settings
 
-## Configuration
+### Requirements
+
+- Obsidian Desktop (not mobile - requires native Node.js modules)
+- Node.js installed on your system
+
+## Usage
+
+### Automatic Processing
+
+1. Configure the watched folder in settings (default: `_Assets/Enluminures`)
+2. Drop a PNG image into that folder
+3. The plugin automatically crops, squares, and resizes it
+
+### Manual Processing
+
+- **Right-click an image** → "Autocrop image"
+- **Command palette** → "Autocrop current image" or "Autocrop all images in watched folder"
+
+### Restore Original
+
+If you're not happy with the result:
+- **Right-click the image** → "Restore original image"
+- **Command palette** → "Restore current image from backup"
+
+## Settings
 
 | Setting | Description | Default |
 |---------|-------------|---------|
-| Enable auto-processing | Auto-process new images | On |
+| Enable auto-processing | Watch folder for new images | On |
 | Watched folder | Folder to monitor | `_Assets/Enluminures` |
-| Target size | Final size in pixels | 200 |
+| Target size | Final image size in pixels (square) | 200 |
 | Trim threshold | Edge detection sensitivity (0-50) | 10 |
-| Background color | Padding color | transparent |
+| Background color | Padding color (`transparent` or hex) | transparent |
+| Keep backup | Save originals before processing | On |
 
-## Commands
+## How It Works
 
-- **Autocrop current image**: Process the currently open image
-- **Autocrop all images in watched folder**: Batch process all PNGs
-
-## How it works
-
-When a new PNG is added to the watched folder:
-
-1. **Trim**: Removes transparent/near-transparent edges
-2. **Square**: Centers the content in a square canvas with padding
-3. **Resize**: Scales to target size using Lanczos resampling
-4. **Save**: Overwrites the original with the processed version
-
-## Use with Surfing / Local REST API
-
-This plugin is designed to work with the Surfing plugin. When you save DALL-E images via the Local REST API to `_Assets/Enluminures/`, they will be automatically processed.
+1. **Trim**: Removes transparent or near-transparent borders
+2. **Square**: Adds padding to make the image square, centering the content
+3. **Resize**: Scales to the target size using high-quality Lanczos resampling
+4. **Save**: Overwrites the original (backup saved in `_originals/` if enabled)
 
 ## Troubleshooting
 
