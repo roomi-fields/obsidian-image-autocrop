@@ -38,7 +38,6 @@ export default class ImageAutocropPlugin extends Plugin {
     // Try to load sharp
     await this.loadSharp();
 
-    // Register file creation handler
     this.registerFileWatcher();
 
     // Add command to manually process a file
@@ -193,15 +192,16 @@ export default class ImageAutocropPlugin extends Plugin {
   }
 
   private registerFileWatcher(): void {
-    // Only watch for NEW files (create event)
-    // We don't watch modify to avoid reprocessing on every startup/sync
+    // Ignore create events for 5 seconds after startup to avoid reprocessing existing files
+    let ready = false;
+    setTimeout(() => { ready = true; }, 5000);
+
     this.fileCreatedHandler = (file: TFile) => {
+      if (!ready) return;
       if (!this.settings.enabled) return;
       if (!this.isInWatchedFolder(file.path)) return;
       if (!this.isImageFile(file.path)) return;
-      if (this.hasBackup(file.path)) return; // Already processed
 
-      // Delay processing to ensure file is fully written
       setTimeout(() => {
         void this.processImage(file);
       }, 1000);
