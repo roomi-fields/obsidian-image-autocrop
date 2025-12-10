@@ -7,11 +7,7 @@ interface ImageAutocropSettings {
   watchedFolder: string;
   targetSize: number;
   enabled: boolean;
-  processExisting: boolean;
   trimThreshold: number;
-  backgroundColor: string;
-  removeBackground: boolean;
-  backgroundTolerance: number;
   keepBackup: boolean;
 }
 
@@ -19,11 +15,7 @@ const DEFAULT_SETTINGS: ImageAutocropSettings = {
   watchedFolder: "_Assets/Enluminures",
   targetSize: 200,
   enabled: true,
-  processExisting: false,
   trimThreshold: 10,
-  backgroundColor: "transparent",
-  removeBackground: false,
-  backgroundTolerance: 30,
   keepBackup: true,
 };
 
@@ -34,13 +26,9 @@ export default class ImageAutocropPlugin extends Plugin {
 
   override async onload() {
     await this.loadSettings();
-
-    // Try to load sharp
     await this.loadSharp();
-
     this.registerFileWatcher();
 
-    // Add command to manually process a file
     this.addCommand({
       id: "autocrop-current-image",
       name: "Autocrop current image",
@@ -56,7 +44,6 @@ export default class ImageAutocropPlugin extends Plugin {
       },
     });
 
-    // Add command to process all images in watched folder
     this.addCommand({
       id: "autocrop-all-in-folder",
       name: "Autocrop all images in watched folder",
@@ -65,7 +52,6 @@ export default class ImageAutocropPlugin extends Plugin {
       },
     });
 
-    // Add command to restore current image from backup
     this.addCommand({
       id: "restore-current-image",
       name: "Restore current image from backup",
@@ -81,10 +67,8 @@ export default class ImageAutocropPlugin extends Plugin {
       },
     });
 
-    // Add settings tab
     this.addSettingTab(new ImageAutocropSettingTab(this.app, this));
 
-    // Add context menu for files
     this.registerEvent(
       this.app.workspace.on("file-menu", (menu: Menu, file: TFile) => {
         if (file instanceof TFile && this.isImageFile(file.path)) {
@@ -97,7 +81,6 @@ export default class ImageAutocropPlugin extends Plugin {
               });
           });
 
-          // Add restore option if backup exists
           const backupPath = this.getBackupPath(file.path);
           const backup = this.app.vault.getAbstractFileByPath(backupPath);
           if (backup instanceof TFile) {
@@ -117,24 +100,18 @@ export default class ImageAutocropPlugin extends Plugin {
     console.log("Image Autocrop plugin loaded");
   }
 
-  /**
-   * Restore an image from its backup
-   */
   async restoreFromBackup(file: TFile): Promise<boolean> {
     const backupPath = this.getBackupPath(file.path);
-    console.log(`Looking for backup at: ${backupPath}`);
     const backup = this.app.vault.getAbstractFileByPath(backupPath);
-    console.log(`Backup found: ${backup !== null}, is TFile: ${backup instanceof TFile}`);
 
     if (!(backup instanceof TFile)) {
-      new Notice(`No backup found at: ${backupPath}`);
+      new Notice(`No backup found for: ${file.name}`);
       return false;
     }
 
     try {
       const backupData = await this.app.vault.readBinary(backup);
       await this.app.vault.modifyBinary(file, backupData);
-      // Force refresh by updating the file's mtime
       await this.refreshImageCache(file);
       new Notice(`Restored: ${file.name}`);
       return true;
@@ -149,13 +126,9 @@ export default class ImageAutocropPlugin extends Plugin {
     console.log("Image Autocrop plugin unloaded");
   }
 
-  /**
-   * Force Obsidian to refresh the image by closing and reopening the tab
-   */
   private async refreshImageCache(file: TFile): Promise<void> {
     const leaves: any[] = [];
 
-    // Find all leaves showing this file
     this.app.workspace.iterateAllLeaves((leaf) => {
       const viewState = leaf.getViewState();
       if (viewState.state?.file === file.path) {
@@ -163,9 +136,7 @@ export default class ImageAutocropPlugin extends Plugin {
       }
     });
 
-    // Close and reopen each leaf
     for (const leaf of leaves) {
-      const state = leaf.getViewState();
       leaf.detach();
       await new Promise(resolve => setTimeout(resolve, 50));
       await this.app.workspace.getLeaf(true).openFile(file);
@@ -174,19 +145,14 @@ export default class ImageAutocropPlugin extends Plugin {
 
   private async loadSharp(): Promise<void> {
     try {
-      // Get the plugin's base path
       const pluginDir = (this.app.vault.adapter as any).basePath +
         "/.obsidian/plugins/image-autocrop/node_modules/sharp";
-
-      console.log("Trying to load sharp from:", pluginDir);
-
-      // Dynamic import for sharp with absolute path
       // eslint-disable-next-line @typescript-eslint/no-require-imports
       sharp = require(pluginDir);
       console.log("Sharp loaded successfully");
     } catch (error) {
       console.error("Failed to load sharp:", error);
-      new Notice("Image Autocrop: Failed to load image processing library. Check console for details.");
+      new Notice("Image Autocrop: Failed to load image processing library.");
       sharp = null;
     }
   }
@@ -216,21 +182,10 @@ export default class ImageAutocropPlugin extends Plugin {
     );
   }
 
-  /**
-   * Get the backup path for an image
-   */
   private getBackupPath(filePath: string): string {
     const dir = filePath.substring(0, filePath.lastIndexOf("/"));
     const filename = filePath.substring(filePath.lastIndexOf("/") + 1);
     return `${dir}/_originals/${filename}`;
-  }
-
-  /**
-   * Check if a backup already exists for this image (means it was already processed)
-   */
-  private hasBackup(filePath: string): boolean {
-    const backupPath = this.getBackupPath(filePath);
-    return this.app.vault.getAbstractFileByPath(backupPath) !== null;
   }
 
   private isInWatchedFolder(filePath: string): boolean {
@@ -241,12 +196,11 @@ export default class ImageAutocropPlugin extends Plugin {
 
   private isImageFile(filePath: string): boolean {
     const lowerPath = filePath.toLowerCase();
-    // Exclude files in _originals folder
     if (lowerPath.includes("/_originals/")) {
       return false;
     }
     const ext = lowerPath.split(".").pop();
-    return ext === "png"; // Only PNG for transparency support
+    return ext === "png";
   }
 
   async processImage(file: TFile): Promise<boolean> {
@@ -264,35 +218,28 @@ export default class ImageAutocropPlugin extends Plugin {
     try {
       console.log(`Processing image: ${file.path}`);
 
-      // Read the file as binary
       const data = await this.app.vault.readBinary(file);
       const buffer = Buffer.from(data);
 
-      // Keep backup if enabled
       if (this.settings.keepBackup) {
         const backupPath = this.getBackupPath(file.path);
         const existingBackup = this.app.vault.getAbstractFileByPath(backupPath);
         if (!existingBackup) {
-          // Ensure _originals folder exists
           const backupDir = backupPath.substring(0, backupPath.lastIndexOf("/"));
           const folderExists = this.app.vault.getAbstractFileByPath(backupDir);
           if (!folderExists) {
             await this.app.vault.createFolder(backupDir);
           }
-          // Create backup
           await this.app.vault.createBinary(backupPath, data);
           console.log(`Backup created: ${backupPath}`);
         }
       }
 
-      // Process with sharp
       const processedBuffer = await this.autocropImage(buffer);
 
       if (processedBuffer) {
-        // Write back to vault - convert Buffer to ArrayBuffer
         const arrayBuffer = new Uint8Array(processedBuffer).buffer;
         await this.app.vault.modifyBinary(file, arrayBuffer);
-        // Force refresh
         await this.refreshImageCache(file);
         console.log(`Successfully processed: ${file.path}`);
         new Notice(`Image autocropped: ${file.name}`);
@@ -306,7 +253,6 @@ export default class ImageAutocropPlugin extends Plugin {
       new Notice(`Failed to process ${file.name}: ${error instanceof Error ? error.message : "Unknown error"}`);
       return false;
     } finally {
-      // Remove from processing set after a delay
       setTimeout(() => {
         this.processing.delete(file.path);
       }, 2000);
@@ -317,54 +263,26 @@ export default class ImageAutocropPlugin extends Plugin {
     if (!sharp) return null;
 
     try {
-      let workingBuffer = inputBuffer;
-
-      // Step 0: Remove background color if enabled
-      if (this.settings.removeBackground) {
-        workingBuffer = await this.removeBackgroundColor(workingBuffer);
-      }
-
-      // Get image info
-      const image = sharp(workingBuffer);
-      const metadata = await image.metadata();
-
-      if (!metadata.width || !metadata.height) {
-        throw new Error("Could not read image dimensions");
-      }
-
-      // Step 1: Trim transparent/near-transparent edges
-      // Sharp's trim() removes borders based on the top-left pixel
-      const trimmed = await image
-        .trim({
-          threshold: this.settings.trimThreshold,
-        })
+      // Find the bounding box of non-transparent content
+      const { data, info } = await sharp(inputBuffer)
+        .ensureAlpha()
+        .raw()
         .toBuffer({ resolveWithObject: true });
 
-      // Step 2: Make it square by adding padding
-      const { width, height } = trimmed.info;
-      const maxSide = Math.max(width, height);
+      const { width, height } = info;
+      const bounds = this.findContentBounds(data, width, height);
 
-      // Calculate padding to center the image
-      const padLeft = Math.floor((maxSide - width) / 2);
-      const padTop = Math.floor((maxSide - height) / 2);
-      const padRight = maxSide - width - padLeft;
-      const padBottom = maxSide - height - padTop;
-
-      // Step 3: Add padding and resize to target size
-      const background = this.settings.backgroundColor === "transparent"
-        ? { r: 0, g: 0, b: 0, alpha: 0 }
-        : this.parseColor(this.settings.backgroundColor);
-
-      const result = await sharp(trimmed.data)
-        .extend({
-          top: padTop,
-          bottom: padBottom,
-          left: padLeft,
-          right: padRight,
-          background,
+      // Crop to content bounds and resize
+      const result = await sharp(inputBuffer)
+        .extract({
+          left: bounds.left,
+          top: bounds.top,
+          width: bounds.right - bounds.left,
+          height: bounds.bottom - bounds.top,
         })
         .resize(this.settings.targetSize, this.settings.targetSize, {
-          fit: "fill",
+          fit: "contain",
+          background: { r: 0, g: 0, b: 0, alpha: 0 },
           kernel: "lanczos3",
         })
         .png({
@@ -375,13 +293,60 @@ export default class ImageAutocropPlugin extends Plugin {
 
       return result;
     } catch (error) {
-      // If trim fails (e.g., solid image), try just resizing
-      if (error instanceof Error && error.message.includes("trim")) {
-        console.log("Trim failed, trying resize only");
-        return this.resizeOnly(inputBuffer);
-      }
-      throw error;
+      console.error("Autocrop failed:", error);
+      return this.resizeOnly(inputBuffer);
     }
+  }
+
+  private findContentBounds(
+    pixels: Buffer,
+    width: number,
+    height: number
+  ): { top: number; bottom: number; left: number; right: number } {
+    const threshold = this.settings.trimThreshold;
+    let top = 0, bottom = height, left = 0, right = width;
+
+    topLoop: for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const alpha = pixels[(y * width + x) * 4 + 3];
+        if (alpha > threshold) {
+          top = y;
+          break topLoop;
+        }
+      }
+    }
+
+    bottomLoop: for (let y = height - 1; y >= 0; y--) {
+      for (let x = 0; x < width; x++) {
+        const alpha = pixels[(y * width + x) * 4 + 3];
+        if (alpha > threshold) {
+          bottom = y + 1;
+          break bottomLoop;
+        }
+      }
+    }
+
+    leftLoop: for (let x = 0; x < width; x++) {
+      for (let y = 0; y < height; y++) {
+        const alpha = pixels[(y * width + x) * 4 + 3];
+        if (alpha > threshold) {
+          left = x;
+          break leftLoop;
+        }
+      }
+    }
+
+    rightLoop: for (let x = width - 1; x >= 0; x--) {
+      for (let y = 0; y < height; y++) {
+        const alpha = pixels[(y * width + x) * 4 + 3];
+        if (alpha > threshold) {
+          right = x + 1;
+          break rightLoop;
+        }
+      }
+    }
+
+    return { top, bottom, left, right };
   }
 
   private async resizeOnly(inputBuffer: Buffer): Promise<Buffer | null> {
@@ -400,133 +365,6 @@ export default class ImageAutocropPlugin extends Plugin {
       .toBuffer();
 
     return result;
-  }
-
-  /**
-   * Remove background color by sampling the corners and replacing similar colors with transparency
-   */
-  private async removeBackgroundColor(inputBuffer: Buffer): Promise<Buffer> {
-    if (!sharp) return inputBuffer;
-
-    try {
-      const image = sharp(inputBuffer);
-      const metadata = await image.metadata();
-
-      if (!metadata.width || !metadata.height) {
-        return inputBuffer;
-      }
-
-      const width = metadata.width;
-      const height = metadata.height;
-      const sampleSize = 20; // Sample 20x20 pixels from each corner
-
-      // Get raw pixel data to sample corners
-      const rawImage = await sharp(inputBuffer)
-        .ensureAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true });
-
-      const pixels = rawImage.data;
-      const imgWidth = rawImage.info.width;
-
-      // Sample from all 4 corners
-      const cornerRegions = [
-        { x: 0, y: 0 }, // Top-left
-        { x: width - sampleSize, y: 0 }, // Top-right
-        { x: 0, y: height - sampleSize }, // Bottom-left
-        { x: width - sampleSize, y: height - sampleSize }, // Bottom-right
-      ];
-
-      let totalR = 0, totalG = 0, totalB = 0;
-      let pixelCount = 0;
-
-      for (const corner of cornerRegions) {
-        for (let dy = 0; dy < sampleSize && corner.y + dy < height; dy++) {
-          for (let dx = 0; dx < sampleSize && corner.x + dx < width; dx++) {
-            const x = corner.x + dx;
-            const y = corner.y + dy;
-            const idx = (y * imgWidth + x) * 4;
-
-            // Skip if pixel is already transparent
-            if (pixels[idx + 3] < 128) continue;
-
-            totalR += pixels[idx];
-            totalG += pixels[idx + 1];
-            totalB += pixels[idx + 2];
-            pixelCount++;
-          }
-        }
-      }
-
-      if (pixelCount === 0) {
-        return inputBuffer;
-      }
-
-      const bgR = Math.round(totalR / pixelCount);
-      const bgG = Math.round(totalG / pixelCount);
-      const bgB = Math.round(totalB / pixelCount);
-
-      console.log(`Detected background color: RGB(${bgR}, ${bgG}, ${bgB})`);
-
-      // We already have rawImage from corner sampling, reuse it
-      const tolerance = this.settings.backgroundTolerance;
-
-      // Replace background color with transparency
-      for (let i = 0; i < pixels.length; i += 4) {
-        const r = pixels[i];
-        const g = pixels[i + 1];
-        const b = pixels[i + 2];
-
-        // Check if this pixel is close to the background color
-        const diffR = Math.abs(r - bgR);
-        const diffG = Math.abs(g - bgG);
-        const diffB = Math.abs(b - bgB);
-
-        if (diffR <= tolerance && diffG <= tolerance && diffB <= tolerance) {
-          // Make transparent
-          pixels[i + 3] = 0;
-        }
-      }
-
-      // Reconstruct the image
-      const result = await sharp(pixels, {
-        raw: {
-          width: rawImage.info.width,
-          height: rawImage.info.height,
-          channels: 4,
-        },
-      })
-        .png()
-        .toBuffer();
-
-      return result;
-    } catch (error) {
-      console.error("Failed to remove background:", error);
-      return inputBuffer;
-    }
-  }
-
-  private parseColor(color: string): { r: number; g: number; b: number; alpha: number } {
-    // Parse hex color
-    const hex = color.replace("#", "");
-    if (hex.length === 6) {
-      return {
-        r: parseInt(hex.substring(0, 2), 16),
-        g: parseInt(hex.substring(2, 4), 16),
-        b: parseInt(hex.substring(4, 6), 16),
-        alpha: 1,
-      };
-    }
-    if (hex.length === 8) {
-      return {
-        r: parseInt(hex.substring(0, 2), 16),
-        g: parseInt(hex.substring(2, 4), 16),
-        b: parseInt(hex.substring(4, 6), 16),
-        alpha: parseInt(hex.substring(6, 8), 16) / 255,
-      };
-    }
-    // Default to transparent
-    return { r: 0, g: 0, b: 0, alpha: 0 };
   }
 
   async processAllInFolder(): Promise<void> {
@@ -556,7 +394,6 @@ export default class ImageAutocropPlugin extends Plugin {
       } else {
         failed++;
       }
-      // Small delay between files
       await new Promise((resolve) => setTimeout(resolve, 100));
     }
 
@@ -596,7 +433,6 @@ class ImageAutocropSettingTab extends PluginSettingTab {
 
   display(): void {
     const { containerEl } = this;
-
     containerEl.empty();
 
     new Setting(containerEl)
@@ -624,7 +460,7 @@ class ImageAutocropSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Target size")
-      .setDesc("Final image size in pixels (square)")
+      .setDesc("Maximum image size in pixels")
       .addText((text) =>
         text
           .setPlaceholder("200")
@@ -640,7 +476,7 @@ class ImageAutocropSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Trim threshold")
-      .setDesc("Sensitivity for detecting edges to trim (0-255, lower = more aggressive)")
+      .setDesc("Alpha threshold for detecting transparent edges (0-255)")
       .addSlider((slider) =>
         slider
           .setLimits(0, 50, 1)
@@ -653,47 +489,8 @@ class ImageAutocropSettingTab extends PluginSettingTab {
       );
 
     new Setting(containerEl)
-      .setName("Background color")
-      .setDesc('Color for padding (use "transparent" or hex like "#FFFFFF")')
-      .addText((text) =>
-        text
-          .setPlaceholder("transparent")
-          .setValue(this.plugin.settings.backgroundColor)
-          .onChange(async (value) => {
-            this.plugin.settings.backgroundColor = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl).setName("Background Removal").setHeading();
-
-    new Setting(containerEl)
-      .setName("Remove background color")
-      .setDesc("Detect the center background color and make it transparent")
-      .addToggle((toggle) =>
-        toggle.setValue(this.plugin.settings.removeBackground).onChange(async (value) => {
-          this.plugin.settings.removeBackground = value;
-          await this.plugin.saveSettings();
-        })
-      );
-
-    new Setting(containerEl)
-      .setName("Background tolerance")
-      .setDesc("Color difference tolerance for background removal (higher = more aggressive)")
-      .addSlider((slider) =>
-        slider
-          .setLimits(5, 100, 5)
-          .setValue(this.plugin.settings.backgroundTolerance)
-          .setDynamicTooltip()
-          .onChange(async (value) => {
-            this.plugin.settings.backgroundTolerance = value;
-            await this.plugin.saveSettings();
-          })
-      );
-
-    new Setting(containerEl)
       .setName("Keep backup")
-      .setDesc("Save original as .original.png before processing (allows restore)")
+      .setDesc("Save original in _originals folder before processing")
       .addToggle((toggle) =>
         toggle.setValue(this.plugin.settings.keepBackup).onChange(async (value) => {
           this.plugin.settings.keepBackup = value;
@@ -705,7 +502,7 @@ class ImageAutocropSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Process all images")
-      .setDesc("Manually process all existing images in the watched folder")
+      .setDesc("Process all existing images in the watched folder")
       .addButton((button) =>
         button.setButtonText("Process All").onClick(async () => {
           button.setButtonText("Processing...");
@@ -715,20 +512,5 @@ class ImageAutocropSettingTab extends PluginSettingTab {
           button.setDisabled(false);
         })
       );
-
-    // Info section
-    containerEl.createEl("h3", { text: "How it works" });
-    containerEl.createEl("p", {
-      text: "This plugin watches the specified folder for new PNG images. When a new image is added, it automatically:",
-    });
-    const list = containerEl.createEl("ol");
-    list.createEl("li", { text: "Trims transparent/empty edges" });
-    list.createEl("li", { text: "Centers the content in a square canvas" });
-    list.createEl("li", { text: "Resizes to the target size" });
-
-    containerEl.createEl("p", {
-      text: "You can also use the command palette to manually process the current image or all images in the folder.",
-      cls: "setting-item-description",
-    });
   }
 }
