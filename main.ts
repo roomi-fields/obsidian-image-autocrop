@@ -263,17 +263,28 @@ export default class ImageAutocropPlugin extends Plugin {
     if (!sharp) return null;
 
     try {
-      // Find the bounding box of non-transparent content
-      const { data, info } = await sharp(inputBuffer)
+      // Get raw pixels with alpha
+      const { data: rawPixels, info } = await sharp(inputBuffer)
         .ensureAlpha()
         .raw()
         .toBuffer({ resolveWithObject: true });
 
       const { width, height } = info;
-      const bounds = this.findContentBounds(data, width, height);
+      const pixels = Buffer.from(rawPixels);
 
-      // Crop to content bounds and resize
-      const result = await sharp(inputBuffer)
+      // Detect background color from corners and make it transparent
+      const bgColor = this.detectBackgroundColor(pixels, width, height);
+      if (bgColor) {
+        this.makeBackgroundTransparent(pixels, bgColor, 30);
+      }
+
+      // Find content bounds based on alpha
+      const bounds = this.findContentBounds(pixels, width, height);
+
+      // Crop to content bounds, then resize (keeping aspect ratio)
+      const result = await sharp(pixels, {
+        raw: { width, height, channels: 4 }
+      })
         .extract({
           left: bounds.left,
           top: bounds.top,
@@ -281,8 +292,7 @@ export default class ImageAutocropPlugin extends Plugin {
           height: bounds.bottom - bounds.top,
         })
         .resize(this.settings.targetSize, this.settings.targetSize, {
-          fit: "contain",
-          background: { r: 0, g: 0, b: 0, alpha: 0 },
+          fit: "inside",
           kernel: "lanczos3",
         })
         .png({
@@ -295,6 +305,76 @@ export default class ImageAutocropPlugin extends Plugin {
     } catch (error) {
       console.error("Autocrop failed:", error);
       return this.resizeOnly(inputBuffer);
+    }
+  }
+
+  private detectBackgroundColor(pixels: Buffer, width: number, height: number): { r: number; g: number; b: number } | null {
+    const sampleSize = 20;
+    let r = 0, g = 0, b = 0, count = 0;
+
+    // Sample corners, but only opaque pixels
+    const corners = [
+      { x: 0, y: 0 },
+      { x: width - sampleSize, y: 0 },
+      { x: 0, y: height - sampleSize },
+      { x: width - sampleSize, y: height - sampleSize },
+    ];
+
+    for (const corner of corners) {
+      for (let dy = 0; dy < sampleSize; dy++) {
+        for (let dx = 0; dx < sampleSize; dx++) {
+          const x = corner.x + dx;
+          const y = corner.y + dy;
+          if (x >= width || y >= height) continue;
+          const idx = (y * width + x) * 4;
+          // Only count opaque pixels
+          if (pixels[idx + 3] < 128) continue;
+          r += pixels[idx];
+          g += pixels[idx + 1];
+          b += pixels[idx + 2];
+          count++;
+        }
+      }
+    }
+
+    // If corners are mostly transparent, sample edges instead
+    if (count < 100) {
+      // Sample top and bottom edges
+      for (let x = 0; x < width; x += 10) {
+        for (const y of [0, height - 1]) {
+          const idx = (y * width + x) * 4;
+          if (pixels[idx + 3] < 128) continue;
+          r += pixels[idx];
+          g += pixels[idx + 1];
+          b += pixels[idx + 2];
+          count++;
+        }
+      }
+      // Sample left and right edges
+      for (let y = 0; y < height; y += 10) {
+        for (const x of [0, width - 1]) {
+          const idx = (y * width + x) * 4;
+          if (pixels[idx + 3] < 128) continue;
+          r += pixels[idx];
+          g += pixels[idx + 1];
+          b += pixels[idx + 2];
+          count++;
+        }
+      }
+    }
+
+    if (count === 0) return null;
+    return { r: Math.round(r / count), g: Math.round(g / count), b: Math.round(b / count) };
+  }
+
+  private makeBackgroundTransparent(pixels: Buffer, bg: { r: number; g: number; b: number }, tolerance: number): void {
+    for (let i = 0; i < pixels.length; i += 4) {
+      const dr = Math.abs(pixels[i] - bg.r);
+      const dg = Math.abs(pixels[i + 1] - bg.g);
+      const db = Math.abs(pixels[i + 2] - bg.b);
+      if (dr <= tolerance && dg <= tolerance && db <= tolerance) {
+        pixels[i + 3] = 0;
+      }
     }
   }
 
@@ -353,11 +433,6 @@ export default class ImageAutocropPlugin extends Plugin {
     if (!sharp) return null;
 
     const result = await sharp(inputBuffer)
-      .resize(this.settings.targetSize, this.settings.targetSize, {
-        fit: "contain",
-        background: { r: 0, g: 0, b: 0, alpha: 0 },
-        kernel: "lanczos3",
-      })
       .png({
         compressionLevel: 9,
         adaptiveFiltering: true,
